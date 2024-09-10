@@ -4,20 +4,26 @@ import com.scaler.userservice.models.Token;
 import com.scaler.userservice.models.User;
 import com.scaler.userservice.repositories.TokenRepository;
 import com.scaler.userservice.repositories.UserRepository;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jws;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 import lombok.extern.apachecommons.CommonsLog;
 import org.apache.commons.lang3.RandomStringUtils;
+import org.springframework.boot.autoconfigure.security.SecurityProperties;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.util.Calendar;
-import java.util.Date;
-import java.util.Optional;
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 
 @Service
 public class UserServiceImpl implements UserService {
     private UserRepository userRepository;
     private TokenRepository tokenRepository;
     private BCryptPasswordEncoder bCryptPasswordEncoder;
+    private SecretKey secretKey;
 
     public UserServiceImpl(
             UserRepository userRepository,
@@ -27,6 +33,7 @@ public class UserServiceImpl implements UserService {
         this.userRepository = userRepository;
         this.tokenRepository = tokenRepository;
         this.bCryptPasswordEncoder = bCryptPasswordEncoder;
+        this.secretKey = Keys.hmacShaKeyFor("myveryveryverylongsecretkey123456789".getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
@@ -60,25 +67,32 @@ public class UserServiceImpl implements UserService {
             return null;
         }
 
-        Token token = createToken(user);
+        Token token = createJwtToken(user);
+
         return tokenRepository.save(token);
     }
 
     @Override
     public User validate(String tokenValue) {
-        Optional<Token> tokenOptional = tokenRepository
-                .findByValueAndDeletedAndExpiryAtGreaterThan(tokenValue,
-                        false,
-                        new Date());
+        Jws<Claims> claims = Jwts
+                .parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(tokenValue);
 
-        if(tokenOptional.isEmpty()) {
-            // TODO: throw an exception TokenInvalidException
+        if(claims == null) {
             return null;
         }
 
-        Token token = tokenOptional.get();
+        Date expiryAt = claims.getPayload().getExpiration();
+        Long userId = claims.getPayload().get("userId", Long.class);
+        String email = claims.getPayload().get("email", String.class);
 
-        return token.getUser();
+        User user = new User();
+        user.setId(userId);
+        user.setEmail(email);
+
+        return user;
     }
 
     @Override
@@ -108,6 +122,33 @@ public class UserServiceImpl implements UserService {
         Date dateAfter30Days = calendar.getTime();
 
         token.setExpiryAt(dateAfter30Days);
+        token.setDeleted(false);
+
+        return token;
+    }
+
+    private Token createJwtToken(User user) {
+        Map<String, Object> dataInJwt = new HashMap<>();
+        dataInJwt.put("userId", user.getId());
+        dataInJwt.put("email", user.getEmail());
+
+        Calendar calendar = Calendar.getInstance();
+        Date currentDate = calendar.getTime();
+
+        calendar.add(Calendar.DAY_OF_MONTH, 30);
+        Date datePlus30Days = calendar.getTime();
+
+        String jwt = Jwts.builder()
+                .claims(dataInJwt)
+                .expiration(datePlus30Days)
+                .issuedAt(new Date())
+                .signWith(secretKey)
+                .compact();
+
+        Token token = new Token();
+        token.setValue(jwt);
+        token.setUser(user);
+        token.setExpiryAt(datePlus30Days);
         token.setDeleted(false);
 
         return token;

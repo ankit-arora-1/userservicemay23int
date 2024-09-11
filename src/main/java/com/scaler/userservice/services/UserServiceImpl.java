@@ -67,7 +67,8 @@ public class UserServiceImpl implements UserService {
     @Override
     public User validate(String tokenValue) {
         Optional<Token> tokenOptional = tokenRepository
-                .findByValueAndDeletedAndExpiryAtGreaterThan(tokenValue,
+                .findByValueAndDeletedAndExpiryAtGreaterThan(
+                        tokenValue,
                         false,
                         new Date());
 
@@ -83,7 +84,8 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public void logout(String tokenValue) {
-        Optional<Token> optionalToken = tokenRepository.findByValueAndDeleted(tokenValue, false);
+        Optional<Token> optionalToken = tokenRepository
+                .findByValueAndDeleted(tokenValue, false);
 
         if (optionalToken.isEmpty()) {
             //Throw some exception
